@@ -12,6 +12,54 @@ from pypdf import PdfReader
 from google import genai
 import database as db
 
+# Configuração inicial da página
+st.set_page_config(page_title="Gestão Financeira PJ | Prestadores de Serviços", layout="wide")
+
+# ==========================================
+# SISTEMA DE LOGIN E AUTENTICAÇÃO
+# ==========================================
+def verificar_autenticacao():
+    # Credenciais personalizadas solicitadas
+    usuario_correto = st.secrets.get("AUTH_USER", "sisfinanctest")
+    senha_correta = st.secrets.get("AUTH_PASSWORD", "31072024")
+
+    def validar_login():
+        if st.session_state.get("input_user") == usuario_correto and st.session_state.get("input_pass") == senha_correta:
+            st.session_state["autenticado"] = True
+        else:
+            st.session_state["autenticado"] = False
+            st.error("Usuário ou senha incorretos.")
+
+    if "autenticado" not in st.session_state:
+        st.session_state["autenticado"] = False
+
+    if not st.session_state["autenticado"]:
+        col_l1, col_l2, col_l3 = st.columns([1, 1.2, 1])
+        with col_l2:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.subheader("🔒 Acesso Restrito ao Sistema")
+            st.caption("Entre com suas credenciais para visualizar o painel financeiro.")
+            
+            with st.form("form_login"):
+                st.text_input("Usuário", key="input_user")
+                st.text_input("Senha", type="password", key="input_pass")
+                btn_entrar = st.form_submit_button("Entrar no Sistema")
+                
+                if btn_entrar:
+                    validar_login()
+                    if st.session_state["autenticado"]:
+                        st.rerun()
+        return False
+    return True
+
+# Trava o aplicativo se não estiver logado
+if not verificar_autenticacao():
+    st.stop()
+
+# ==========================================
+# INICIALIZAÇÃO DO SISTEMA PÓS-LOGIN
+# ==========================================
+
 # Carrega variáveis de ambiente (Chave da API do Gemini)
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -32,8 +80,6 @@ db.inserir_dados_iniciais()
 DIRETORIO_UPLOADS = "uploads"
 if not os.path.exists(DIRETORIO_UPLOADS):
     os.makedirs(DIRETORIO_UPLOADS)
-
-st.set_page_config(page_title="Gestão Financeira PJ | Prestadores de Serviços", layout="wide")
 
 SIMBOLOS = {"BRL": "R$", "EUR": "€", "USD": "US$"}
 
@@ -76,8 +122,15 @@ def garantir_coluna_cliente():
 
 garantir_coluna_cliente()
 
-# --- BARRA LATERAL: PERFIS ---
+# --- BARRA LATERAL: PERFIS E SAÍDA ---
 st.sidebar.title("Perfis PJ & Negócios")
+
+# Botão de Logout na barra lateral
+if st.sidebar.button("🔒 Sair do Sistema"):
+    st.session_state["autenticado"] = False
+    st.rerun()
+
+st.sidebar.divider()
 
 conn = db.conectar()
 df_perfis = pd.read_sql_query("SELECT * FROM perfis", conn)
@@ -235,20 +288,17 @@ with aba_geral:
 
     st.divider()
 
-    # --- PAINEL DE CONTROLE DE VENCIMENTOS E ALERTAS (NOVO) ---
-    st.subheader(" Painel de Vencimentos ")
+    # --- PAINEL DE CONTROLE DE VENCIMENTOS E ALERTAS ---
+    st.subheader("🚨 Painel de Vencimentos & Alertas")
     
     if not df_mov.empty:
         hoje_str = str(date.today())
-        
-        # Filtra pendentes
         df_pend = df_mov[df_mov["status"] == "PENDENTE"].copy()
         
         if not df_pend.empty:
             vencidos = df_pend[df_pend["data_vencimento"] < hoje_str]
             vencem_hoje = df_pend[df_pend["data_vencimento"] == hoje_str]
             
-            # Alertas visuais em colunas
             ac1, ac2 = st.columns(2)
             
             with ac1:
@@ -264,7 +314,7 @@ with aba_geral:
 
             with ac2:
                 total_hoje = vencem_hoje["valor"].sum() if not vencem_hoje.empty else 0.0
-                st.markdown(f"###  Vencem Hoje: `{formatar_moeda(total_hoje, simbolo)}`")
+                st.markdown(f"### 📅 Vencem Hoje: `{formatar_moeda(total_hoje, simbolo)}`")
                 if vencem_hoje.empty:
                     st.info("Nenhum vencimento programado para hoje.")
                 else:
@@ -665,7 +715,7 @@ with aba_lancar:
 # ABA 3: IA & IMPORTAÇÃO SMART
 # ==========================================
 with aba_ia:
-    st.subheader(" Leitura Inteligente de Notas Fiscais e Boletos (IA)")
+    st.subheader("🤖 Leitura Inteligente de Notas Fiscais e Boletos (IA)")
     st.caption("Envie o PDF da nota fiscal ou fatura. O Gemini vai ler o documento, preencher os dados e arquivar o PDF automaticamente na aba de Documentos.")
 
     if not client:
